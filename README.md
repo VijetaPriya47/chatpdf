@@ -38,7 +38,7 @@ Follow the steps below to install and setup the project:
    Open your terminal and run the following command:
 
    ```bash
-   git clone https://github.com/Elliott-Chong/chatpdf-yt.git
+   git clone https://github.com/VijetaPriya47/chatpdf.git
    ```
 
 2. **Navigate to the project directory**
