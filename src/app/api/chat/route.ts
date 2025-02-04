@@ -1,5 +1,4 @@
-import { Configuration, OpenAIApi } from "openai-edge";
-import { Message, OpenAIStream, StreamingTextResponse } from "ai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getContext } from "@/lib/context";
 import { db } from "@/lib/db";
 import { chats, messages as _messages } from "@/lib/db/schema";
@@ -8,66 +7,70 @@ import { NextResponse } from "next/server";
 
 export const runtime = "edge";
 
-const config = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-const openai = new OpenAIApi(config);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 export async function POST(req: Request) {
   try {
     const { messages, chatId } = await req.json();
     const _chats = await db.select().from(chats).where(eq(chats.id, chatId));
-    if (_chats.length != 1) {
-      return NextResponse.json({ error: "chat not found" }, { status: 404 });
+
+    if (_chats.length !== 1) {
+      return NextResponse.json({ error: "Chat not found" }, { status: 404 });
     }
+
     const fileKey = _chats[0].fileKey;
     const lastMessage = messages[messages.length - 1];
     const context = await getContext(lastMessage.content, fileKey);
 
-    const prompt = {
-      role: "system",
-      content: `AI assistant is a brand new, powerful, human-like artificial intelligence.
-      The traits of AI include expert knowledge, helpfulness, cleverness, and articulateness.
-      AI is a well-behaved and well-mannered individual.
-      AI is always friendly, kind, and inspiring, and he is eager to provide vivid and thoughtful responses to the user.
-      AI has the sum of all knowledge in their brain, and is able to accurately answer nearly any question about any topic in conversation.
-      AI assistant is a big fan of Pinecone and Vercel.
+    const systemPrompt = `AI assistant is a powerful, human-like artificial intelligence.
+      AI is knowledgeable, helpful, and articulate.
+      AI provides clear, factual, and well-reasoned responses.
       START CONTEXT BLOCK
       ${context}
       END OF CONTEXT BLOCK
-      AI assistant will take into account any CONTEXT BLOCK that is provided in a conversation.
-      If the context does not provide the answer to question, the AI assistant will say, "I'm sorry, but I don't know the answer to that question".
-      AI assistant will not apologize for previous responses, but instead will indicated new information was gained.
-      AI assistant will not invent anything that is not drawn directly from the context.
-      `,
-    };
+      AI assistant will only use the provided context.
+      If the answer is not in the context, AI will respond with: "I'm sorry, but I don't know the answer to that question."
+    `;
 
-    const response = await openai.createChatCompletion({
-      model: "gpt-3.5-turbo",
-      messages: [
-        prompt,
-        ...messages.filter((message: Message) => message.role === "user"),
+    // Get the AI model
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+
+    // Stream AI response
+    const resultStream = await model.generateContent({
+      contents: [
+        { role: "user", parts: [{ text: systemPrompt }] },
+        ...messages.map((msg: any) => ({
+          role: msg.role,
+          parts: [{ text: msg.content }],
+        })),
       ],
-      stream: true,
     });
-    const stream = OpenAIStream(response, {
-      onStart: async () => {
-        // save user message into db
-        await db.insert(_messages).values({
-          chatId,
-          content: lastMessage.content,
-          role: "user",
-        });
-      },
-      onCompletion: async (completion) => {
-        // save ai message into db
-        await db.insert(_messages).values({
-          chatId,
-          content: completion,
-          role: "system",
-        });
-      },
+
+    // Save user message to DB
+    await db.insert(_messages).values({
+      chatId,
+      content: lastMessage.content,
+      role: "user",
     });
-    return new StreamingTextResponse(stream);
-  } catch (error) {}
+
+    // Stream response
+    let completion = "";
+    for await (const chunk of resultStream.stream) {
+      completion += chunk.text(); // Append streamed text
+    }
+
+    // Save AI response to DB
+    await db.insert(_messages).values({
+      chatId,
+      content: completion,
+      role: "system",
+    });
+
+    return new Response(completion, {
+      headers: { "Content-Type": "text/plain" },
+    });
+  } catch (error) {
+    console.error("Error processing chat:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }
