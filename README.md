@@ -16,8 +16,8 @@ ChatPDF leverages AI to enable efficient browsing and extraction of information 
 - **Framework**: Next.js, Tailwind CSS
 - **Database**: NeonDB, Pinecone
 - **Authentication**: Clerk
-- **Cloud Service**: AWS S3
-- **Third-Party API**: OpenAI GPT-3.5 Turbo, OpenAI Ada v2
+- **Cloud Service**: Google Cloud
+- **Third-Party API**: Gemini  Embedded API
 - **Subscription**: Stripe
 - **Other Library**: Langchain
 
